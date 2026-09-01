@@ -1069,6 +1069,17 @@ function updateAuthUI(profile) {
     if (profileEmailEl) profileEmailEl.textContent = profile.email;
     if (profileAvatarEl) profileAvatarEl.textContent = initials;
 
+    // Update settings modal elements
+    const settingsAvatar = document.getElementById("settingsAvatar");
+    const settingsUserName = document.getElementById("settingsUserName");
+    const settingsUserEmail = document.getElementById("settingsUserEmail");
+    const settingsUserStatus = document.getElementById("settingsUserStatus");
+
+    if (settingsAvatar) settingsAvatar.textContent = initials;
+    if (settingsUserName) settingsUserName.textContent = displayName;
+    if (settingsUserEmail) settingsUserEmail.textContent = profile.email;
+    if (settingsUserStatus) settingsUserStatus.textContent = `Signed in as ${profile.email}`;
+
     if (authGroup) {
       authGroup.innerHTML = `
         <button type="button" class="btn-auth-signup" id="topbarUserPill" style="display: inline-flex; align-items: center; gap: 6px;" title="View Profile">
