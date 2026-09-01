@@ -484,6 +484,34 @@
                     </div>
                   </div>
                 </div>
+
+                <!-- TAVILY WEB SEARCH API -->
+                <div class="settings-card">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <div>
+                      <h4 class="settings-card-title" style="margin: 0;">Tavily Web Search API</h4>
+                      <small style="color: var(--text-muted); font-size: 12px;">Enable real-time internet context for AI queries using Tavily.</small>
+                    </div>
+                  </div>
+                  
+                  <div class="form-group" style="margin-top: 8px;">
+                    <label for="tavilyApiKeyInput" class="form-label">Tavily API Key (tvly_...)</label>
+                    <div style="position: relative; display: flex; align-items: center;">
+                      <input type="password" id="tavilyApiKeyInput" class="form-input" style="padding-right: 40px;"
+                        placeholder="tvly_..." autocomplete="off" />
+                      <button type="button" id="toggleTavilyApiKeyVisibility" class="icon-button" 
+                        style="position: absolute; right: 4px; color: var(--text-muted);" title="Show/Hide API Key">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                          <circle cx="12" cy="12" r="3"></circle>
+                        </svg>
+                      </button>
+                    </div>
+                    <small style="font-size: 11.5px; color: var(--text-muted); margin-top: 2px;">
+                      Stored privately in your browser. Used securely by Edge Functions for Web Search.
+                    </small>
+                  </div>
+                </div>
               </div>
 
               <!-- 3. PERSONALIZATION TAB -->

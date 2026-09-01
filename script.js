@@ -123,7 +123,8 @@ const elements = {
   apiTemperatureInput: document.getElementById("apiTemperatureInput"),
   tempValueDisplay: document.getElementById("tempValueDisplay"),
   apiMaxTokensInput: document.getElementById("apiMaxTokensInput"),
-  apiSystemPromptInput: document.getElementById("apiSystemPromptInput"),
+  tavilyApiKeyInput: document.getElementById("tavilyApiKeyInput"),
+  toggleTavilyApiKeyVisibility: document.getElementById("toggleTavilyApiKeyVisibility"),
   // Token Usage Progress Elements
   tokenUsageContainer: document.getElementById("tokenUsageContainer"),
   dailyTokensText: document.getElementById("dailyTokensText"),
@@ -248,6 +249,7 @@ const DEFAULT_API_CONFIG = {
   provider: "huggingface",
   endpoint: "https://api-inference.huggingface.co/models/meta-llama/Llama-3.3-70B-Instruct",
   apiKey: "",
+  tavilyApiKey: "",
   model: "meta-llama/Llama-3.3-70B-Instruct",
   temperature: 0.7,
   maxTokens: 1024,
@@ -743,6 +745,18 @@ function bindEvents() {
 
   if (elements.saveApiConfigBtn) {
     elements.saveApiConfigBtn.addEventListener("click", saveApiConfig);
+  }
+
+  if (elements.toggleTavilyApiKeyVisibility && elements.tavilyApiKeyInput) {
+    elements.toggleTavilyApiKeyVisibility.addEventListener("click", () => {
+      if (elements.tavilyApiKeyInput.type === "password") {
+        elements.tavilyApiKeyInput.type = "text";
+        elements.toggleTavilyApiKeyVisibility.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>`;
+      } else {
+        elements.tavilyApiKeyInput.type = "password";
+        elements.toggleTavilyApiKeyVisibility.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>`;
+      }
+    });
   }
 
   if (elements.resetApiConfigBtn) {
@@ -2315,6 +2329,7 @@ function loadApiConfig() {
   if (elements.apiProviderSelect) elements.apiProviderSelect.value = state.apiConfig.provider || "huggingface";
   if (elements.apiEndpointInput) elements.apiEndpointInput.value = state.apiConfig.endpoint || "";
   if (elements.apiKeyInput) elements.apiKeyInput.value = state.apiConfig.apiKey || "";
+  if (elements.tavilyApiKeyInput) elements.tavilyApiKeyInput.value = state.apiConfig.tavilyApiKey || "";
   if (elements.apiModelInput) elements.apiModelInput.value = state.apiConfig.model || "";
   if (elements.apiTemperatureInput) elements.apiTemperatureInput.value = state.apiConfig.temperature ?? 0.7;
   if (elements.tempValueDisplay) elements.tempValueDisplay.textContent = state.apiConfig.temperature ?? 0.7;
@@ -2333,10 +2348,13 @@ function saveApiConfig() {
   const maxTokens = elements.apiMaxTokensInput ? parseInt(elements.apiMaxTokensInput.value, 10) : 1024;
   const systemPrompt = elements.apiSystemPromptInput ? elements.apiSystemPromptInput.value.trim() : "";
 
+  const tavilyApiKey = elements.tavilyApiKeyInput ? elements.tavilyApiKeyInput.value.trim() : "";
+
   state.apiConfig = {
     provider,
     endpoint,
     apiKey,
+    tavilyApiKey,
     model,
     temperature,
     maxTokens,
@@ -2358,6 +2376,7 @@ function resetApiConfig() {
   if (elements.apiProviderSelect) elements.apiProviderSelect.value = state.apiConfig.provider;
   if (elements.apiEndpointInput) elements.apiEndpointInput.value = state.apiConfig.endpoint;
   if (elements.apiKeyInput) elements.apiKeyInput.value = state.apiConfig.apiKey;
+  if (elements.tavilyApiKeyInput) elements.tavilyApiKeyInput.value = state.apiConfig.tavilyApiKey;
   if (elements.apiModelInput) elements.apiModelInput.value = state.apiConfig.model;
   if (elements.apiTemperatureInput) elements.apiTemperatureInput.value = state.apiConfig.temperature;
   if (elements.tempValueDisplay) elements.tempValueDisplay.textContent = state.apiConfig.temperature;
@@ -2501,14 +2520,28 @@ async function getAIResponse(message, options = {}) {
         temperature,
         maxTokens,
         attachments: options.attachments || [],
-        webSearchEnabled: options.webSearchEnabled || false
+        webSearchEnabled: options.webSearchEnabled || false,
+        userApiKey: apiKey,
+        tavilyApiKey: config.tavilyApiKey || ""
       });
 
       if (edgeResult && edgeResult.content) {
         if (edgeResult.usage) {
           addTokenUsage(edgeResult.usage.prompt_tokens, edgeResult.usage.completion_tokens);
         }
-        return edgeResult.content;
+        
+        let finalContent = edgeResult.content;
+        
+        if (edgeResult.sources && edgeResult.sources.length > 0) {
+          finalContent += `\n\n---\n**Sources:**\n`;
+          edgeResult.sources.forEach(source => {
+            const domain = new URL(source.url).hostname.replace('www.', '');
+            const title = source.title || domain;
+            finalContent += `- [${title}](${source.url}) (${domain})\n`;
+          });
+        }
+        
+        return finalContent;
       }
     } catch (edgeErr) {
       console.warn("Supabase Edge Function notice (falling back to direct client API / simulation):", edgeErr);

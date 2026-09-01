@@ -21,6 +21,8 @@ interface ChatRequestBody {
   maxTokens?: number;
   attachments?: Array<{ name: string; type: string; url?: string }>;
   webSearchEnabled?: boolean;
+  userApiKey?: string;
+  tavilyApiKey?: string;
 }
 
 serve(async (req: Request) => {
@@ -32,7 +34,6 @@ serve(async (req: Request) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
     const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-    const aiApiKey = Deno.env.get("AI_API_KEY") ?? Deno.env.get("HUGGINGFACE_API_KEY") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
 
     if (!supabaseUrl || !supabaseServiceRoleKey) {
       return new Response(
@@ -74,6 +75,8 @@ serve(async (req: Request) => {
       maxTokens = 1024,
       attachments = [],
       webSearchEnabled = false,
+      userApiKey,
+      tavilyApiKey,
     } = body;
 
     let conversationId = body.conversationId;
@@ -150,19 +153,51 @@ serve(async (req: Request) => {
     // 6. Build AI Request & Call AI Provider
     let aiResponseText = "";
     let tokenUsage = { prompt_tokens: Math.round(message.length / 4), completion_tokens: 0 };
+    let sources: Array<{ title: string; url: string }> = [];
+
+    const envApiKey = Deno.env.get("AI_API_KEY") ?? Deno.env.get("HUGGINGFACE_API_KEY") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
+    const aiApiKey = userApiKey || envApiKey;
 
     if (!aiApiKey) {
       // Graceful fallback if no server API key is configured yet
       aiResponseText = `[Simulated response from ${model}]: I received your message: "${message}". To enable live server inference, configure AI_API_KEY in your Supabase project secrets.`;
       tokenUsage.completion_tokens = Math.round(aiResponseText.length / 4);
     } else {
-      // Connect to Hugging Face Inference API
-      const hfEndpoint = `https://api-inference.huggingface.co/models/${model}`;
+      // Connect to AI Provider
+      const isOpenAI = model.startsWith("gpt-") || model.startsWith("o1-") || model.startsWith("o3-") || model.startsWith("o4-");
       
       let promptContext = "";
+
       if (webSearchEnabled) {
-        promptContext += "[Web Search Active: Querying latest live info]\n\n";
+        const tavilyKey = tavilyApiKey || Deno.env.get("TAVILY_API_KEY") || Deno.env.get("WEB_SEARCH_API_KEY");
+        if (tavilyKey) {
+          try {
+            const searchRes = await fetch("https://api.tavily.com/search", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ api_key: tavilyKey, query: message, search_depth: "basic", include_answer: false, max_results: 3 })
+            });
+            if (searchRes.ok) {
+              const searchData = await searchRes.json();
+              if (searchData.results && searchData.results.length > 0) {
+                promptContext += "[Web Search Results:]\n";
+                searchData.results.forEach((r: any) => {
+                  promptContext += `Title: ${r.title}\nURL: ${r.url}\nContent: ${r.content}\n\n`;
+                  sources.push({ title: r.title, url: r.url });
+                });
+                promptContext += "Use the above search results to answer the user's query if relevant. Do not invent facts or sources. If the search results do not contain enough information, state that the available sources were insufficient.\n\n";
+              } else {
+                promptContext += "[Web Search Active: No results found for the query.]\n\n";
+              }
+            } else {
+              promptContext += "[Web Search Error: Failed to retrieve results from Tavily.]\n\n";
+            }
+          } catch(err) {
+            promptContext += "[Web Search Error: Network failure calling Tavily.]\n\n";
+          }
+        }
       }
+
       if (attachments.length > 0) {
         promptContext += `[Attached files: ${attachments.map(a => a.name).join(", ")}]\n\n`;
       }
@@ -176,7 +211,7 @@ serve(async (req: Request) => {
       }
       fullPrompt += `Assistant:`;
 
-      const aiResponse = await fetch(hfEndpoint, {
+      const aiResponse = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${aiApiKey}`,
@@ -223,6 +258,7 @@ serve(async (req: Request) => {
         metadata: {
           model,
           usage: tokenUsage,
+          sources: sources.length > 0 ? sources : undefined,
         },
       })
       .select("id, created_at")
@@ -247,6 +283,7 @@ serve(async (req: Request) => {
         model,
         usage: tokenUsage,
         messageId: assistantMsgRecord?.id ?? null,
+        sources: sources.length > 0 ? sources : undefined,
       }),
       {
         status: 200,
