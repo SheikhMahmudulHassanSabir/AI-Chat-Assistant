@@ -57,64 +57,66 @@ async def chat_endpoint(request: Request, body: ChatRequestBody):
         raise HTTPException(status_code=500, detail="Backend configuration error: Supabase credentials are not configured in backend/.env")
 
     auth_header = request.headers.get("Authorization")
-    if not auth_header:
-        raise HTTPException(status_code=401, detail="Unauthorized: Missing Authorization header.")
-
-    token = auth_header.replace("Bearer ", "")
-    
-    try:
-        auth_response = supabase.auth.get_user(token)
-        if not auth_response or not auth_response.user:
-            raise HTTPException(status_code=401, detail="Unauthorized: Invalid or expired session token.")
-        user = auth_response.user
-    except Exception as e:
-        raise HTTPException(status_code=401, detail="Unauthorized: Invalid or expired session token.")
+    user = None
+    if auth_header:
+        token = auth_header.replace("Bearer ", "")
+        try:
+            auth_response = supabase.auth.get_user(token)
+            if auth_response and auth_response.user:
+                user = auth_response.user
+        except Exception:
+            pass
 
     message = body.message
     attachments = body.attachments
     if not message and len(attachments) == 0:
         raise HTTPException(status_code=400, detail="Bad Request: message or attachment is required.")
 
+    history = []
     conversation_id = body.conversationId
-    if conversation_id:
-        conv = supabase.table("conversations").select("id", "user_id").eq("id", conversation_id).eq("user_id", user.id).maybe_single().execute()
-        if not conv.data:
-            raise HTTPException(status_code=403, detail="Forbidden: Conversation not found or access denied.")
-    else:
-        title = message[:36] + ("..." if len(message) > 36 else "") if message else "New chat"
-        new_conv = supabase.table("conversations").insert({
+
+    if user:
+        if conversation_id:
+            conv = supabase.table("conversations").select("id", "user_id").eq("id", conversation_id).eq("user_id", user.id).maybe_single().execute()
+            if not conv.data:
+                raise HTTPException(status_code=403, detail="Forbidden: Conversation not found or access denied.")
+        else:
+            title = message[:36] + ("..." if len(message) > 36 else "") if message else "New chat"
+            new_conv = supabase.table("conversations").insert({
+                "user_id": user.id,
+                "title": title,
+                "model_used": body.model,
+            }).execute()
+            if not new_conv.data:
+                raise HTTPException(status_code=500, detail="Failed to create conversation.")
+            conversation_id = new_conv.data[0]["id"]
+
+        # Save User Message
+        user_msg_meta = {
+            "attachments": [a.model_dump() for a in attachments],
+            "webSearchEnabled": body.webSearchEnabled
+        }
+        user_msg = supabase.table("messages").insert({
+            "conversation_id": conversation_id,
             "user_id": user.id,
-            "title": title,
-            "model_used": body.model,
+            "role": "user",
+            "content": message,
+            "metadata": user_msg_meta
         }).execute()
-        if not new_conv.data:
-            raise HTTPException(status_code=500, detail="Failed to create conversation.")
-        conversation_id = new_conv.data[0]["id"]
 
-    # Save User Message
-    user_msg_meta = {
-        "attachments": [a.model_dump() for a in attachments],
-        "webSearchEnabled": body.webSearchEnabled
-    }
-    user_msg = supabase.table("messages").insert({
-        "conversation_id": conversation_id,
-        "user_id": user.id,
-        "role": "user",
-        "content": message,
-        "metadata": user_msg_meta
-    }).execute()
+        if not user_msg.data:
+            raise HTTPException(status_code=500, detail="Failed to save user message.")
 
-    if not user_msg.data:
-        raise HTTPException(status_code=500, detail="Failed to save user message.")
-
-    # Get conversation history
-    history_res = supabase.table("messages")\
-        .select("role, content")\
-        .eq("conversation_id", conversation_id)\
-        .order("created_at", desc=False)\
-        .limit(10)\
-        .execute()
-    history = history_res.data or []
+        # Get conversation history
+        history_res = supabase.table("messages")\
+            .select("role, content")\
+            .eq("conversation_id", conversation_id)\
+            .order("created_at", desc=False)\
+            .limit(10)\
+            .execute()
+        history = history_res.data or []
+    else:
+        history = [{"role": "user", "content": message}]
 
     # Build AI request
     ai_response_text = ""
@@ -210,13 +212,14 @@ async def chat_endpoint(request: Request, body: ChatRequestBody):
     if sources:
         asst_meta["sources"] = sources
 
-    supabase.table("messages").insert({
-        "conversation_id": conversation_id,
-        "user_id": user.id,
-        "role": "assistant",
-        "content": ai_response_text,
-        "metadata": asst_meta
-    }).execute()
+    if user:
+        supabase.table("messages").insert({
+            "conversation_id": conversation_id,
+            "user_id": user.id,
+            "role": "assistant",
+            "content": ai_response_text,
+            "metadata": asst_meta
+        }).execute()
 
     res_body = {
         "content": ai_response_text,

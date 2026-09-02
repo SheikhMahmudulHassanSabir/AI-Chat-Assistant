@@ -2487,8 +2487,8 @@ async function getAIResponse(message, options = {}) {
     prefix += `[Attached files: ${fileNames}]\n\n`;
   }
 
-  // 1. Try secure Supabase Edge Function if user is authenticated & backend is configured
-  if (state.currentUser && window.SupabaseService && window.SupabaseService.isConfigured()) {
+  // 1. Try secure Supabase Edge Function if backend is configured
+  if (window.SupabaseService && window.SupabaseService.isConfigured()) {
     try {
       const edgeResult = await window.SupabaseService.functions.chat({
         conversationId: options.conversationId || state.activeChatId,
