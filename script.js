@@ -2375,6 +2375,7 @@ function saveApiConfig() {
   try {
     localStorage.setItem("ai_chat_api_config", JSON.stringify(state.apiConfig));
     showToast("AI API configuration saved successfully!");
+    closeAllModals();
   } catch (err) {
     console.error("Failed to save API config:", err);
     showToast("Error saving configuration to local storage.");
