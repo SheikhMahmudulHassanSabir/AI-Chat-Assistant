@@ -155,7 +155,6 @@ const elements = {
   newModelIdInput: document.getElementById("newModelIdInput"),
   newModelNameInput: document.getElementById("newModelNameInput"),
   newModelTagSelect: document.getElementById("newModelTagSelect"),
-  addCustomModelBtn: document.getElementById("addCustomModelBtn"),
 
   // Toast
   toast: document.getElementById("toast"),
@@ -448,15 +447,6 @@ function init() {
 }
 
 function bindEvents() {
-  // Add Custom Hugging Face Model Button
-  if (elements.addCustomModelBtn) {
-    elements.addCustomModelBtn.addEventListener("click", () => {
-      const id = elements.newModelIdInput ? elements.newModelIdInput.value : "";
-      const name = elements.newModelNameInput ? elements.newModelNameInput.value : "";
-      const tag = elements.newModelTagSelect ? elements.newModelTagSelect.value : "⚡ Fast";
-      addCustomHfModel(id, name, tag);
-    });
-  }
 
   // Sidebar Navigation -> Dynamically switches main area view
   if (elements.navItems.chat) {
@@ -1001,7 +991,11 @@ async function initAuth() {
       } else {
         state.currentUser = null;
         state.userProfile = null;
+        state.chats = [];
+        state.libraryResources = [];
         updateAuthUI(null);
+        renderChats();
+        renderMainLibrary();
       }
     });
 
@@ -1024,31 +1018,27 @@ async function loadUserData(user) {
 
     // 2. Fetch Conversations from Supabase
     const dbConversations = await window.SupabaseService.conversations.list(user.id);
-    if (dbConversations && dbConversations.length > 0) {
-      state.chats = dbConversations.map(c => ({
-        id: c.id,
-        title: c.title,
-        pinned: c.is_pinned,
-        model_used: c.model_used,
-        timestamp: new Date(c.updated_at).getTime()
-      }));
-      renderChats();
-    }
+    state.chats = (dbConversations || []).map(c => ({
+      id: c.id,
+      title: c.title,
+      pinned: c.is_pinned,
+      model_used: c.model_used,
+      timestamp: new Date(c.updated_at).getTime()
+    }));
+    renderChats();
 
     // 3. Fetch Files from Supabase
     const dbFiles = await window.SupabaseService.files.list(user.id);
-    if (dbFiles && dbFiles.length > 0) {
-      state.libraryResources = dbFiles.map(f => ({
-        id: f.id,
-        name: f.file_name,
-        type: f.file_type.toLowerCase().includes("pdf") ? "pdf" : (f.file_type.toLowerCase().includes("doc") ? "doc" : "img"),
-        size: formatFileSize(f.file_size),
-        date: new Date(f.created_at).toLocaleDateString(),
-        path: f.file_path,
-        url: f.signedUrl || "#"
-      }));
-      renderMainLibrary();
-    }
+    state.libraryResources = (dbFiles || []).map(f => ({
+      id: f.id,
+      name: f.file_name,
+      type: f.file_type.toLowerCase().includes("pdf") ? "pdf" : (f.file_type.toLowerCase().includes("doc") ? "doc" : "img"),
+      size: formatFileSize(f.file_size),
+      date: new Date(f.created_at).toLocaleDateString(),
+      path: f.file_path,
+      url: f.signedUrl || "#"
+    }));
+    renderMainLibrary();
   } catch (e) {
     console.warn("Failed to fetch user records from Supabase:", e);
   }
@@ -2375,7 +2365,6 @@ function saveApiConfig() {
   try {
     localStorage.setItem("ai_chat_api_config", JSON.stringify(state.apiConfig));
     showToast("AI API configuration saved successfully!");
-    closeAllModals();
   } catch (err) {
     console.error("Failed to save API config:", err);
     showToast("Error saving configuration to local storage.");
@@ -2439,49 +2428,26 @@ async function testApiConnection() {
 
   const startTime = Date.now();
   try {
-    const headers = {
-      "Content-Type": "application/json"
-    };
+    if (window.SupabaseService && window.SupabaseService.isConfigured()) {
+      const result = await window.SupabaseService.functions.chat({
+        conversationId: "test_connection",
+        message: "Hello, test connection. Reply with 'Connected'.",
+        model: model || "Qwen/Qwen3-32B",
+        systemPrompt: "You are a helpful assistant.",
+        temperature: 0.7,
+        maxTokens: 15,
+        userApiKey: apiKey,
+        tavilyApiKey: ""
+      });
 
-    if (apiKey) {
-      headers["Authorization"] = `Bearer ${apiKey}`;
-    }
-
-    let body = {};
-    if (provider === "huggingface") {
-      body = {
-        inputs: "Hello, testing connection. Reply with 'Connected'.",
-        parameters: { max_new_tokens: 15, return_full_text: false }
-      };
-    } else {
-      body = {
-        model: model || "gpt-4o-mini",
-        messages: [{ role: "user", content: "Hello, test connection." }],
-        max_tokens: 15
-      };
-    }
-
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body)
-    });
-
-    const elapsed = Date.now() - startTime;
-
-    if (response.ok) {
-      showToast(`Connection successful! (${elapsed}ms)`);
-    } else {
-      const errorText = await response.text();
-      let errorMsg = `HTTP ${response.status}: ${response.statusText}`;
-      try {
-        const errorJson = JSON.parse(errorText);
-        if (errorJson.error) errorMsg += ` - ${typeof errorJson.error === 'string' ? errorJson.error : JSON.stringify(errorJson.error)}`;
-        if (errorJson.message) errorMsg += ` - ${errorJson.message}`;
-      } catch (e) {
-        if (errorText.length < 120) errorMsg += ` - ${errorText}`;
+      const elapsed = Date.now() - startTime;
+      if (result && result.content) {
+        showToast(`Connection successful! (${elapsed}ms)`);
+      } else {
+        showToast(`API Test Failed: No response content received.`);
       }
-      showToast(`API Test Failed: ${errorMsg}`);
+    } else {
+      showToast("Backend connection is not configured.");
     }
   } catch (err) {
     console.error("Test connection error:", err);
