@@ -43,6 +43,8 @@ class ChatRequestBody(BaseModel):
     conversationId: Optional[str] = None
     message: str
     model: str = "meta-llama/Llama-3.3-70B-Instruct"
+    provider: Optional[str] = "huggingface"
+    endpoint: Optional[str] = None
     systemPrompt: str = "You are a helpful, knowledgeable, and precise AI assistant."
     temperature: float = 0.7
     maxTokens: int = 1024
@@ -51,10 +53,16 @@ class ChatRequestBody(BaseModel):
     userApiKey: Optional[str] = None
     tavilyApiKey: Optional[str] = None
 
+@app.get("/")
+async def root():
+    return {"status": "ok", "service": "AI Chat Backend", "supabase_configured": supabase is not None}
+
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "supabase_configured": supabase is not None}
+
 @app.post("/chat")
 async def chat_endpoint(request: Request, body: ChatRequestBody):
-    if supabase is None:
-        raise HTTPException(status_code=500, detail="Backend configuration error: Supabase credentials are not configured in backend/.env")
 
     auth_header = request.headers.get("Authorization")
     user = None
@@ -168,26 +176,53 @@ async def chat_endpoint(request: Request, body: ChatRequestBody):
             full_prompt += f"{role}: {m['content']}\n"
         full_prompt += "Assistant:"
 
-        hf_endpoint = f"https://api-inference.huggingface.co/models/{body.model}"
-        final_input = f"{prompt_context}{full_prompt}" if prompt_context else full_prompt
+        target_provider = (body.provider or "huggingface").lower()
+        target_endpoint = body.endpoint or ""
+
+        if not target_endpoint:
+            if target_provider == "huggingface":
+                target_endpoint = f"https://api-inference.huggingface.co/models/{body.model}"
+            elif target_provider == "openai":
+                target_endpoint = "https://api.openai.com/v1/chat/completions"
+            elif target_provider == "ollama":
+                target_endpoint = "http://localhost:11434/v1/chat/completions"
+
+        headers = {"Content-Type": "application/json"}
+        if ai_api_key:
+            headers["Authorization"] = f"Bearer {ai_api_key}"
+
+        payload = {}
+        if target_provider == "huggingface":
+            final_input = f"{prompt_context}{full_prompt}" if prompt_context else full_prompt
+            payload = {
+                "inputs": final_input,
+                "parameters": {
+                    "temperature": body.temperature,
+                    "max_new_tokens": body.maxTokens,
+                    "return_full_text": False
+                }
+            }
+        else:
+            messages = [{"role": "system", "content": body.systemPrompt}]
+            for m in history:
+                messages.append({"role": m["role"], "content": m["content"]})
+            if prompt_context:
+                messages.append({"role": "user", "content": f"{prompt_context}{message}"})
+
+            payload = {
+                "model": body.model or "gpt-4o-mini",
+                "messages": messages,
+                "temperature": body.temperature,
+                "max_tokens": body.maxTokens
+            }
 
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
-                ai_res = await client.post(hf_endpoint, headers={
-                    "Authorization": f"Bearer {ai_api_key}",
-                    "Content-Type": "application/json"
-                }, json={
-                    "inputs": final_input,
-                    "parameters": {
-                        "temperature": body.temperature,
-                        "max_new_tokens": body.maxTokens,
-                        "return_full_text": False
-                    }
-                })
+                ai_res = await client.post(target_endpoint, headers=headers, json=payload)
 
                 if ai_res.status_code != 200:
                     print("AI Provider error:", ai_res.status_code, ai_res.text)
-                    raise HTTPException(status_code=502, detail=f"AI Provider returned HTTP {ai_res.status_code}")
+                    raise HTTPException(status_code=502, detail=f"AI Provider returned HTTP {ai_res.status_code}: {ai_res.text[:120]}")
 
                 ai_data = ai_res.json()
                 if isinstance(ai_data, list) and len(ai_data) > 0 and "generated_text" in ai_data[0]:
@@ -195,14 +230,22 @@ async def chat_endpoint(request: Request, body: ChatRequestBody):
                 elif isinstance(ai_data, dict) and "generated_text" in ai_data:
                     ai_response_text = ai_data["generated_text"].strip()
                 elif isinstance(ai_data, dict) and "choices" in ai_data and len(ai_data["choices"]) > 0:
-                    ai_response_text = ai_data["choices"][0]["message"]["content"].strip()
+                    choice = ai_data["choices"][0]
+                    if "message" in choice and "content" in choice["message"]:
+                        ai_response_text = choice["message"]["content"].strip()
+                    elif "text" in choice:
+                        ai_response_text = choice["text"].strip()
+                elif isinstance(ai_data, dict) and "response" in ai_data:
+                    ai_response_text = ai_data["response"].strip()
                 else:
                     ai_response_text = json.dumps(ai_data)
 
             token_usage["completion_tokens"] = round(len(ai_response_text) / 4)
+        except HTTPException:
+            raise
         except Exception as e:
             print("Error connecting to AI Provider:", e)
-            raise HTTPException(status_code=502, detail="Error connecting to AI Provider")
+            raise HTTPException(status_code=502, detail=f"Error connecting to AI Provider: {str(e)}")
 
     # Save Assistant Response
     asst_meta = {
