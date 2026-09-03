@@ -204,10 +204,19 @@ async def chat_endpoint(request: Request, body: ChatRequestBody):
             }
         else:
             messages = [{"role": "system", "content": body.systemPrompt}]
-            for m in history:
-                messages.append({"role": m["role"], "content": m["content"]})
-            if prompt_context:
-                messages.append({"role": "user", "content": f"{prompt_context}{message}"})
+            # Add conversation history
+            if history:
+                for m in history:
+                    # Avoid duplicating last message if already in history
+                    messages.append({"role": m["role"], "content": m["content"]})
+
+            # Ensure latest user message is present
+            if not history or history[-1]["content"] != message or history[-1]["role"] != "user":
+                user_content = f"{prompt_context}{message}" if prompt_context else message
+                messages.append({"role": "user", "content": user_content})
+            elif prompt_context and messages:
+                # Prepend context to the last user message
+                messages[-1]["content"] = f"{prompt_context}{messages[-1]['content']}"
 
             payload = {
                 "model": body.model or "gpt-4o-mini",
