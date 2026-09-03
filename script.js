@@ -129,6 +129,8 @@ const elements = {
   testApiConnectionBtn: document.getElementById("testApiConnectionBtn"),
   tavilyApiKeyInput: document.getElementById("tavilyApiKeyInput"),
   toggleTavilyApiKeyVisibility: document.getElementById("toggleTavilyApiKeyVisibility"),
+  testTavilyApiBtn: document.getElementById("testTavilyApiBtn"),
+  saveTavilyApiBtn: document.getElementById("saveTavilyApiBtn"),
   // Token Usage Progress Elements
   tokenUsageContainer: document.getElementById("tokenUsageContainer"),
   dailyTokensText: document.getElementById("dailyTokensText"),
@@ -764,6 +766,16 @@ function bindEvents() {
 
   if (elements.testApiConnectionBtn) {
     elements.testApiConnectionBtn.addEventListener("click", testApiConnection);
+  }
+
+  if (elements.testTavilyApiBtn) {
+    elements.testTavilyApiBtn.addEventListener("click", testTavilyConnection);
+  }
+
+  if (elements.saveTavilyApiBtn) {
+    elements.saveTavilyApiBtn.addEventListener("click", () => {
+      saveApiConfig();
+    });
   }
 
   if (elements.addModelBtn) {
@@ -2431,45 +2443,130 @@ function updateApiEndpointHint(providerKey) {
   }
 }
 
+async function testTavilyConnection() {
+  const tavilyKey = elements.tavilyApiKeyInput ? elements.tavilyApiKeyInput.value.trim() : "";
+  if (!tavilyKey) {
+    showToast("Please enter a Tavily API Key first.");
+    return;
+  }
+
+  showToast("Testing Tavily Web Search API...");
+  const startTime = Date.now();
+
+  try {
+    const res = await fetch("https://api.tavily.com/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        api_key: tavilyKey,
+        query: "test connection",
+        max_results: 1
+      })
+    });
+
+    const elapsed = Date.now() - startTime;
+    if (res.ok) {
+      const data = await res.json();
+      showToast(`Tavily Connection Successful! (${elapsed}ms)`);
+    } else {
+      const errText = await res.text();
+      showToast(`Tavily API Test Failed (${res.status}): ${errText.slice(0, 80)}`);
+    }
+  } catch (err) {
+    console.error("Tavily test error:", err);
+    showToast(`Tavily Connection Error: ${err.message}`);
+  }
+}
+
 async function testApiConnection() {
-  const endpoint = elements.apiEndpointInput ? elements.apiEndpointInput.value.trim() : "";
-  const apiKey = elements.apiKeyInput ? elements.apiKeyInput.value.trim() : "";
-  const model = elements.apiModelInput ? elements.apiModelInput.value.trim() : "";
   const provider = elements.apiProviderSelect ? elements.apiProviderSelect.value : "huggingface";
+  const apiKey = elements.apiKeyInput ? elements.apiKeyInput.value.trim() : "";
+  const model = elements.apiModelInput ? elements.apiModelInput.value.trim() : (state.selectedModel || "meta-llama/Llama-3.3-70B-Instruct");
+
+  let endpoint = elements.apiEndpointInput ? elements.apiEndpointInput.value.trim() : "";
+  if (!endpoint && provider === "huggingface") {
+    endpoint = `https://api-inference.huggingface.co/models/${model}`;
+  }
 
   if (!endpoint) {
-    showToast("Please enter an API endpoint URL first.");
+    showToast("Please enter or select an API endpoint URL first.");
     return;
   }
 
   showToast("Testing API connection...");
 
   const startTime = Date.now();
-  try {
-    if (window.SupabaseService && window.SupabaseService.isConfigured()) {
-      const result = await window.SupabaseService.functions.chat({
-        conversationId: "test_connection",
-        message: "Hello, test connection. Reply with 'Connected'.",
-        model: model || "Qwen/Qwen3-32B",
-        systemPrompt: "You are a helpful assistant.",
-        temperature: 0.7,
-        maxTokens: 15,
-        userApiKey: apiKey,
-        tavilyApiKey: ""
-      });
 
-      const elapsed = Date.now() - startTime;
-      if (result && result.content) {
-        showToast(`Connection successful! (${elapsed}ms)`);
-      } else {
-        showToast(`API Test Failed: No response content received.`);
-      }
-    } else {
-      showToast("Backend connection is not configured.");
+  // Try standard REST fetch first for direct client connection (supports any provider)
+  try {
+    const headers = { "Content-Type": "application/json" };
+    if (apiKey) {
+      headers["Authorization"] = `Bearer ${apiKey}`;
     }
-  } catch (err) {
-    console.error("Test connection error:", err);
-    showToast(`Network/CORS error: ${err.message}`);
+
+    let body = {};
+    if (provider === "huggingface") {
+      body = {
+        inputs: "Hello, reply with 'Connected'.",
+        parameters: { max_new_tokens: 15 }
+      };
+    } else {
+      body = {
+        model: model || "gpt-4o-mini",
+        messages: [{ role: "user", content: "Hello, reply with 'Connected'." }],
+        max_tokens: 15
+      };
+    }
+
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body)
+    });
+
+    const elapsed = Date.now() - startTime;
+    if (res.ok) {
+      showToast(`API Connection Successful! (${elapsed}ms)`);
+      return;
+    } else {
+      const errText = await res.text();
+      let msg = `HTTP ${res.status}`;
+      try {
+        const errJson = JSON.parse(errText);
+        if (errJson.error) msg = typeof errJson.error === 'string' ? errJson.error : (errJson.error.message || msg);
+      } catch (e) {
+        if (errText.length < 100) msg = errText;
+      }
+      showToast(`API Test Error (${res.status}): ${msg}`);
+      return;
+    }
+  } catch (clientErr) {
+    // If CORS or client fetch failed, attempt Supabase backend function as fallback if configured
+    if (window.SupabaseService && window.SupabaseService.isConfigured()) {
+      try {
+        const result = await window.SupabaseService.functions.chat({
+          conversationId: "test_connection",
+          message: "Hello, test connection.",
+          model: model,
+          provider: provider,
+          endpoint: endpoint,
+          systemPrompt: "You are a helpful assistant.",
+          temperature: 0.7,
+          maxTokens: 15,
+          userApiKey: apiKey,
+          tavilyApiKey: ""
+        });
+
+        const elapsed = Date.now() - startTime;
+        if (result && result.content) {
+          showToast(`Backend API Connection Successful! (${elapsed}ms)`);
+          return;
+        }
+      } catch (e) {
+        // Ignored
+      }
+    }
+    showToast(`Network/CORS error connecting to ${endpoint}: ${clientErr.message}`);
   }
 }
 
@@ -2497,7 +2594,36 @@ async function getAIResponse(message, options = {}) {
   let prefix = "";
 
   if (options.webSearchEnabled) {
-    prefix += `[Web Search Active: Querying latest live info]\n\n`;
+    const tavilyKey = (config.tavilyApiKey || "").trim();
+    if (tavilyKey) {
+      try {
+        const searchRes = await fetch("https://api.tavily.com/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            api_key: tavilyKey,
+            query: message,
+            search_depth: "basic",
+            max_results: 3
+          })
+        });
+
+        if (searchRes.ok) {
+          const searchData = await searchRes.json();
+          if (searchData.results && searchData.results.length > 0) {
+            prefix += `[Web Search Context:]\n`;
+            searchData.results.forEach((r) => {
+              prefix += `Title: ${r.title}\nURL: ${r.url}\nContent: ${r.content}\n\n`;
+            });
+            prefix += `Use the above search results to answer the user's query accurately.\n\n`;
+          }
+        }
+      } catch (err) {
+        console.warn("Client Tavily fetch error:", err);
+      }
+    } else {
+      prefix += `[Web Search Active: Querying latest live info]\n\n`;
+    }
   }
 
   if (options.attachments && options.attachments.length > 0) {
@@ -2512,6 +2638,8 @@ async function getAIResponse(message, options = {}) {
         conversationId: options.conversationId || state.activeChatId,
         message,
         model: selectedModelId,
+        provider: provider,
+        endpoint: endpoint,
         systemPrompt,
         temperature,
         maxTokens,
