@@ -49,6 +49,10 @@
         </div>
       </div>
 
+      <div class="sidebar__search-wrapper hidden" id="sidebarSearch">
+        <input type="text" id="searchInput" class="sidebar__search-input" placeholder="Search chats..." />
+      </div>
+
       <div class="sidebar__scroll">
         <nav class="sidebar__nav">
           <button class="nav-item active" id="navNewChat">
@@ -398,6 +402,12 @@
                   </div>
 
                   <div class="form-group">
+                    <label for="apiModelInput" class="form-label">Model Name / ID</label>
+                    <input type="text" id="apiModelInput" class="form-input"
+                      placeholder="meta-llama/Llama-3.3-70B-Instruct" autocomplete="off" />
+                  </div>
+
+                  <div class="form-group">
                     <label for="apiEndpointInput" class="form-label">API Endpoint URL (Auto-configured per model)</label>
                     <input type="url" id="apiEndpointInput" class="form-input" 
                       placeholder="https://api-inference.huggingface.co/models/meta-llama/Llama-3.3-70B-Instruct" autocomplete="off" />
@@ -419,6 +429,23 @@
                   <!-- Model List Container -->
                   <div class="hf-models-list" id="hfModelsListContainer">
                     <!-- Populated dynamically via JS -->
+                  </div>
+
+                  <div class="add-model-form" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);">
+                    <h5 style="margin: 0 0 8px 0; font-size: 13px; font-weight: 600;">Add Custom Model</h5>
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                      <input type="text" id="newModelIdInput" class="form-input" placeholder="Model ID (e.g. meta-llama/Llama-3.2-1B)" style="flex: 2; min-width: 180px;" />
+                      <input type="text" id="newModelNameInput" class="form-input" placeholder="Display Name (optional)" style="flex: 1; min-width: 120px;" />
+                      <select id="newModelTagSelect" class="settings-select" style="padding: 6px 8px;">
+                        <option value="⚡ Fast">⚡ Fast</option>
+                        <option value="🧠 Reasoning">🧠 Reasoning</option>
+                        <option value="💎 Balanced">💎 Balanced</option>
+                        <option value="💻 Coding">💻 Coding</option>
+                        <option value="🌊 Creative">🌊 Creative</option>
+                        <option value="👁️ Vision">👁️ Vision</option>
+                      </select>
+                      <button type="button" class="btn-submit" id="addModelBtn" style="padding: 6px 12px;">Add</button>
+                    </div>
                   </div>
 
                 </div>
@@ -781,6 +808,8 @@
           <div class="token-usage-bar-container" id="tokenUsageContainer" aria-label="AI Token Usage">
             <!-- Daily Token Usage -->
             <div class="token-usage-card" title="Daily Token Usage">
+              <span id="dailyTokensText" class="visually-hidden"></span>
+              <span id="dailyTokensRemaining" class="visually-hidden"></span>
               <div class="token-progress-track">
                 <div class="token-progress-fill" id="dailyTokensBar" style="width: 0%;"></div>
               </div>
@@ -788,6 +817,8 @@
 
             <!-- Monthly Token Usage -->
             <div class="token-usage-card" title="Monthly Token Usage">
+              <span id="monthlyTokensText" class="visually-hidden"></span>
+              <span id="monthlyTokensRemaining" class="visually-hidden"></span>
               <div class="token-progress-track">
                 <div class="token-progress-fill" id="monthlyTokensBar" style="width: 0%;"></div>
               </div>

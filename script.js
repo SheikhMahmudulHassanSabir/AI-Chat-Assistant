@@ -123,6 +123,10 @@ const elements = {
   apiTemperatureInput: document.getElementById("apiTemperatureInput"),
   tempValueDisplay: document.getElementById("tempValueDisplay"),
   apiMaxTokensInput: document.getElementById("apiMaxTokensInput"),
+  apiSystemPromptInput: document.getElementById("apiSystemPromptInput"),
+  saveApiConfigBtn: document.getElementById("saveApiConfigBtn"),
+  resetApiConfigBtn: document.getElementById("resetApiConfigBtn"),
+  testApiConnectionBtn: document.getElementById("testApiConnectionBtn"),
   tavilyApiKeyInput: document.getElementById("tavilyApiKeyInput"),
   toggleTavilyApiKeyVisibility: document.getElementById("toggleTavilyApiKeyVisibility"),
   // Token Usage Progress Elements
@@ -146,15 +150,20 @@ const elements = {
   toggleLoginPwd: document.getElementById("toggleLoginPwd"),
   forgotPasswordBtn: document.getElementById("forgotPasswordBtn"),
   switchToSignupBtn: document.getElementById("switchToSignupBtn"),
+  switchToLoginBtn: document.getElementById("switchToLoginBtn"),
   signupForm: document.getElementById("signupForm"),
   signupName: document.getElementById("signupName"),
   signupEmail: document.getElementById("signupEmail"),
   signupPassword: document.getElementById("signupPassword"),
+  signupConfirmPassword: document.getElementById("signupConfirmPassword"),
+  toggleSignupPwd: document.getElementById("toggleSignupPwd"),
+  toggleSignupConfirmPwd: document.getElementById("toggleSignupConfirmPwd"),
   // Model Library Elements
   hfModelsListContainer: document.getElementById("hfModelsListContainer"),
   newModelIdInput: document.getElementById("newModelIdInput"),
   newModelNameInput: document.getElementById("newModelNameInput"),
   newModelTagSelect: document.getElementById("newModelTagSelect"),
+  addModelBtn: document.getElementById("addModelBtn"),
 
   // Toast
   toast: document.getElementById("toast"),
@@ -755,6 +764,15 @@ function bindEvents() {
 
   if (elements.testApiConnectionBtn) {
     elements.testApiConnectionBtn.addEventListener("click", testApiConnection);
+  }
+
+  if (elements.addModelBtn) {
+    elements.addModelBtn.addEventListener("click", () => {
+      const modelId = elements.newModelIdInput ? elements.newModelIdInput.value : "";
+      const name = elements.newModelNameInput ? elements.newModelNameInput.value : "";
+      const tag = elements.newModelTagSelect ? elements.newModelTagSelect.value : "";
+      addCustomHfModel(modelId, name, tag);
+    });
   }
 
   // Save Personalization Button
